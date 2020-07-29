@@ -1,10 +1,10 @@
-# Properly implementing "ghosts of departed proofs"
+# Ghosts of departed proofs
 
 In this article, we'll be looking at a clever way to remove redundent bounds checks on array indexing using techniques discussed in the legendary paper [Ghosts of Departed Proofs](https://kataskeue.com/gdp.pdf).
 
 Let's get one thing out of the way off the bat: if you don't want to have to deal with bounds checks, most of the time you want to use iterators instead of loops. [This page](https://www.cs.brandeis.edu/~cs146a/rust/doc-02-21-2015/book/iterators.html) provides a nice introduction to iterators and their adapters if you've never used them before. Suffice it to say, using ``map``'s and ``filter``'s will compile into code without bounds checks, and fits what you were probably trying to do anyway.
 
-Besides this, there are sometimes situations where writing for loops is either the only way, or the only way in readable code. Consider the following example:
+Besides this, there are sometimes situations where writing for loops is either the only way, or prefereable for whatever reason. Consider the following example:
 
 ```rust
 let mut v = vec![0; 10];
@@ -15,14 +15,17 @@ let index_a = todo!("Some unknown-at-compile-time index");
 let index_b = todo!("These could be user supplied!");
 
 for _ in 0..100 {
+    // ...
+    // is index_a out of bounds? Bounds check
     v[index_a] += 5;
     v[index_b] += 10;
+    // ...
 }
 
 // ...
 ```
 
-An example implementation might look like [this](https://godbolt.org/z/8786Gc). Now, there is bounds checking going on (see line 75 of the assembly). In an ideal world, the bounds checks would happen once before the loop, since the indices aren't changing, and the vec isn't shrinking in size. Is the optimized code only doing the bounds check once? Well, to find out, we'll have to put on our assembly hats.
+An example implementation might look like [this](https://godbolt.org/z/8786Gc). Now, there is bounds checking going on according to Godbolt (see line 75 of the assembly). In an ideal world, the bounds checks would happen once before the loop, since the indices aren't changing, and the vec isn't shrinking in size. Is the optimized code only doing the bounds check once? Well, let's check the assembly.
 
 Below is the assembly generated for my example:
 
@@ -115,7 +118,7 @@ for _ in 0..100 {
     *v.get_mut(index_b) += 10;
 }
 
-let v = v.unname();
+let v = v.unfix();
 
 // continue using v...
 ```
@@ -124,7 +127,7 @@ So what's happening here? In the first 3 lines, we're wrapping the Vec in a Fixe
 
 In essence, what's important is that ``index_a`` has type ``Index<Name>``, and ``v`` has type ``FixedVec<u32, Name>``, and that ``Name`` matches between them. ``Name`` is a type created anonymously in the ``name!()`` macro. Since these types match, we must have created ``index_a`` from ``check_index`` on ``v``, and only on ``v``, and since ``v`` has a fixed size, the index must be in bounds.
 
-So how do we make it all work? It turns out, with the previous paragraph in mind, it's fairly straightforward. There are a couple of implementaitons of naming and names from GDP in Rust, but we'll make our own very simple one. Let's start by making a ``Named`` struct:
+So how do we make it all work? It turns out, with the previous paragraph in mind, it's fairly straightforward. There are a couple of implementations of naming and names from GDP in Rust, but we'll make our own very simple one, since I don't like the others. This code can be found in the [type_name_value](https://github.com/Torrencem/type_name_value) crate. Let's start by making a ``Named`` struct:
 
 ```rust
 pub struct Named<T, Name> {
@@ -184,9 +187,9 @@ impl<T, Name> Named<T, Name> {
 }
 ```
 
-This should give us a convenient way to use ``name!()`` to get unique types attached to values. It's not perfect, because we need to have ownership to use ``name!()`` (it should probably suffice to have ``&mut``, since that's a unique reference), but we'll adjust that another time.
+This should give us a convenient way to use ``name!()`` to get unique types attached to values.
 
-With that out of the way, let's write our ``FixedVec`` types and methods:
+With that out of the way, let's try and write our ``FixedVec`` types and methods:
 
 ```rust
 pub struct FixedVec<A, Name> {
@@ -195,6 +198,8 @@ pub struct FixedVec<A, Name> {
 }
 
 impl<A, Name> FixedVec<A, Name> {
+    // We can't use name!() ourselves here, so
+    // we need the user to do it
     pub fn fix(val: Named<Vec<A>, Name>) -> Self {
         FixedVec {
             inner: val,
@@ -285,6 +290,8 @@ let v2 = FixedVec::fix(v2);
 println!("{}", v2.get(index)); // Compile error here!
 ```
 
+The [equivelent of the earlier code](https://godbolt.org/z/f48eT7) gives assembly which only does bounds checks outside the main loop. Nice!
+
 ## Part 2: Ranges
 
 So that's all well and good, but if we're working with loads of indices, it would be awkward to have to keep track of a bunch of ``Index<Name>``'s. In particular, what if we want to work with a huge range of these indices? To check that all the indices in a range are in bounds is one check (is the upper bound of the range in bounds, assuming they are unsigned), so, ideally, we'd be able to just check a range once, then iterate through a bunch of ``Index<Name>``'s, like the following:
@@ -346,3 +353,9 @@ impl<A, Name> FixedVec<A, Name> {
 ```
 
 And that's it! Now we can use ``CheckedRange<Name>`` as an iterator, and it will produce ``Index<Name>``'s, avoiding potential redundent bounds checks.
+
+## Epilogue
+
+So does this make a difference in terms of speed? Well, the answer is, as always, it depends. Most of the time, this is not what you need, but the wonderful thing about Rust is that you can benchmark until your hair falls out, and check what *actually* is best for your specific use case. There are some rudementary benchmarks in the ``bench`` folder of this project which show that for the simple application of taking single array indices, the speeds are exactly the same. This is probably because the optimizer on Godbolt works differently than the one on my computer. The second example, with the ranges, is significantly faster however. It just goes to show, with bounds checks in an iterative setting you're often at the whim of the optimizer whether you get that last few percent of efficiency, and so you should always benchmark your code in the environment it will be running, and maybe using ``FixedVec`` will mean you don't have to rely solely on the compiler to do that optimization for you.
+
+I can imagine so many more circumstances in which this pattern would speed up some runtime checks (including those listed in the original GDP paper, like keys existing in HashMaps), and I hope this will inspire more use of this pattern in different contexts.

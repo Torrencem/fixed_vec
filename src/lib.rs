@@ -6,51 +6,9 @@ use std::ops::Range;
 #[macro_use]
 extern crate derivative;
 
-// TODO: There should be a way to make a temporary name with &mut, since
-// we still have exclusive access to a value, even if we don't have ownership
-pub struct Named<T, Name> {
-    inner: T,
-    _phantom: PhantomData<Name>,
-}
+extern crate type_name_value;
 
-/// Safety:
-/// Must make sure Name is not used as the name for any other
-/// value of type Named<T, Name>
-pub unsafe fn name<Name, T>(val: T) -> Named<T, Name> {
-    Named {
-        inner: val,
-        _phantom: PhantomData,
-    }
-}
-
-impl<T, Name> Named<T, Name> {
-    pub fn unname(self) -> T {
-        self.inner
-    }
-
-    pub fn unname_ref(&self) -> &T {
-        &self.inner
-    }
-    
-    /// Safety:
-    /// Must uphold whatever invariants the Named protects
-    pub unsafe fn unname_ref_mut(&mut self) -> &mut T {
-        &mut self.inner
-    }
-}
-
-#[macro_export]
-macro_rules! name {
-    ($val:expr) => {{
-        struct UniqueName {};
-
-        unsafe {
-            // Nothing else is named $name because we just
-            // defined $name!
-            name::<UniqueName, _>($val)
-        }
-    }}
-}
+use type_name_value::Named;
 
 pub struct FixedVec<A, Name> {
     inner: Named<Vec<A>, Name>,
@@ -104,6 +62,10 @@ impl<A, Name> FixedVec<A, Name> {
         }
     }
 
+    pub fn unfix(self) -> Vec<A> {
+        self.inner.unname()
+    }
+
     pub fn check_index(&self, index: usize) -> Option<Index<Name>> {
         if self.len() <= index {
             None
@@ -125,13 +87,15 @@ impl<A, Name> FixedVec<A, Name> {
             })
         }
     }
-
+    
+    #[inline(always)]
     pub fn get(&self, index: Index<Name>) -> &A {
         unsafe {
             self.inner.unname_ref().get_unchecked(index.index)
         }
     }
 
+    #[inline(always)]
     pub fn get_mut(&mut self, index: Index<Name>) -> &mut A {
         unsafe {
             // We can take unname_ref_mut since
@@ -145,6 +109,8 @@ impl<A, Name> FixedVec<A, Name> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use type_name_value::name;
+
     #[test]
     fn it_works() {
         let v = vec![1, 2, 3];
@@ -202,5 +168,13 @@ mod tests {
                 *v.get_mut(i) += 1;
             }
         }
+
+        // The following won't compile:
+        // let v2 = vec![];
+        // let v2 = name!(v2);
+        // let mut v2 = FixedVec::fix(v2);
+        // for i in range {
+        //     *v2.get_mut(i) += 1;
+        // }
     }
 }
