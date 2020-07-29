@@ -125,9 +125,9 @@ let v = v.unfix();
 
 So what's happening here? In the first 3 lines, we're wrapping the Vec in a FixedVec, so that it's size won't change (we could let it expand, but that's not important). Because of ownership, since we're passing ownership of v, this is fine. We also give v a name, just like in the "ghosts of departed proofs" paper.
 
-In essence, what's important is that ``index_a`` has type ``Index<Name>``, and ``v`` has type ``FixedVec<u32, Name>``, and that ``Name`` matches between them. ``Name`` is a type created anonymously in the ``name!()`` macro. Since these types match, we must have created ``index_a`` from ``check_index`` on ``v``, and only on ``v``, and since ``v`` has a fixed size, the index must be in bounds.
+In essence, what's important is that ``index_a`` has type ``Index<Name>``, and ``v`` has type ``FixedVec<u32, Name>``, and that ``Name`` matches between them. ``Name`` is a type created anonymously in the ``name!()`` macro. Since these types match, we must have created ``index_a`` from ``check_index`` on ``v``, and only on ``v``, and since ``v`` has a fixed size, the index must be in bounds. It's very important that we can't use ``index_a`` on any ``FixedVec`` other than the one it was created with, and this is enforced from the fact that each call to ``name!()`` will produce a unique type ``Name``.
 
-So how do we make it all work? It turns out, with the previous paragraph in mind, it's fairly straightforward. There are a couple of implementations of naming and names from GDP in Rust, but we'll make our own very simple one, since I don't like the others. This code can be found in the [type_name_value](https://github.com/Torrencem/type_name_value) crate. Let's start by making a ``Named`` struct:
+So how do we make it all work? It turns out, with the previous paragraph in mind, it's fairly straightforward. There are a couple of implementations of naming and names from GDP in Rust, but we'll make our own very simple one, since I find the others a bit clumsy. This code can be found in the [type_name_value](https://github.com/Torrencem/type_name_value) crate. Let's start by making a ``Named`` struct:
 
 ```rust
 pub struct Named<T, Name> {
@@ -136,7 +136,7 @@ pub struct Named<T, Name> {
 }
 ```
 
-Notice all the fields are private, so only we in our library can construct it. Now, we'll make a name function, that applies any name to wrap a type in ``Named``. We'll make this safe, since it makes sense in our use case:
+Notice all the fields are private, so only we in our library can construct it. Now, we'll make a name function, that applies any name to wrap a type in ``Named``. We'll make this unsafe, since it makes sense in our use case:
 
 ```rust
 /// Safety:
@@ -167,7 +167,7 @@ macro_rules! name {
 }
 ```
 
-Great! We need some boilerplate for getting immutable references from ``Named``, as well as for unnaming it:
+We see the struct ``UniqueName`` is created, and then used right away. Great! We need some boilerplate for getting immutable references from ``Named``, as well as for unnaming it:
 
 ```rust
 impl<T, Name> Named<T, Name> {
@@ -187,7 +187,7 @@ impl<T, Name> Named<T, Name> {
 }
 ```
 
-This should give us a convenient way to use ``name!()`` to get unique types attached to values.
+This should give us a convenient way to use ``name!()`` to get unique types attached to values. We make ``unname_ref_mut`` unsafe, since with our ``FixedVec`` example, we will need to make sure that when modifying the underlying ``Vec``, we don't decrease its size.
 
 With that out of the way, let's try and write our ``FixedVec`` types and methods:
 
@@ -224,8 +224,8 @@ impl<A, Name> Deref for FixedVec<A, Name> {
 We need our ``Index<Name>`` struct, which represents a valid index in the named vec with name ``Name``. The only way to construct it should be through a bounds check.
 
 ```rust
-// Goofy derive copy detail here
 pub struct Index<Name> {
+    // Private members (important!):
     index: usize,
     _phantom: PhantomData<Name>,
 }
@@ -248,6 +248,7 @@ impl<A, Name> FixedVec<A, Name> {
 
     pub fn get(&self, index: Index<Name>) -> &A {
         unsafe {
+            // No bounds check, since that's the whole point
             self.inner.unname_ref().get_unchecked(index.index)
         }
     }
@@ -256,7 +257,7 @@ impl<A, Name> FixedVec<A, Name> {
         unsafe {
             // We can take unname_ref_mut since
             // changing a single index will not
-            // violate the length invariant
+            // violate the length invariant of self.inner
             self.inner.unname_ref_mut().get_unchecked_mut(index.index)
         }
     }
@@ -272,7 +273,7 @@ let v = FixedVec::fix(v);
 
 let index = v.check_index(1).unwrap();
 
-println!("{}", v.get(index));
+println!("{}", v.get(index));  // 2
 ```
 
 But, for example, the following doesn't compile:
@@ -287,7 +288,7 @@ let index = v.check_index(1).unwrap();
 let v2: Vec<usize> = vec![];
 let v2 = name!(v2);
 let v2 = FixedVec::fix(v2);
-println!("{}", v2.get(index)); // Compile error here!
+println!("{}", v2.get(index)); // Compile error here! index isn't the right type
 ```
 
 The [equivelent of the earlier code](https://godbolt.org/z/f48eT7) gives assembly which only does bounds checks outside the main loop. Nice!
@@ -313,8 +314,6 @@ for i in v.check_range(range) {
 So let's write the ``check_range`` function. We'll need a ``CheckedRange`` type to return as well:
 
 ```rust
-#[derive(Derivative)]
-#[derivative(Clone(bound=""))]
 pub struct CheckedRange<Name> {
     range: Range<usize>,
     _phantom: PhantomData<Name>,
@@ -356,6 +355,8 @@ And that's it! Now we can use ``CheckedRange<Name>`` as an iterator, and it will
 
 ## Epilogue
 
-So does this make a difference in terms of speed? Well, the answer is, as always, it depends. Most of the time, this is not what you need, but the wonderful thing about Rust is that you can benchmark until your hair falls out, and check what *actually* is best for your specific use case. There are some rudementary benchmarks in the ``bench`` folder of this project which show that for the simple application of taking single array indices, the speeds are exactly the same. This is probably because the optimizer on Godbolt works differently than the one on my computer. The second example, with the ranges, is significantly faster however. It just goes to show, with bounds checks in an iterative setting you're often at the whim of the optimizer whether you get that last few percent of efficiency, and so you should always benchmark your code in the environment it will be running, and maybe using ``FixedVec`` will mean you don't have to rely solely on the compiler to do that optimization for you.
+So does this make a difference in terms of speed? Well, the answer is, as always, it depends. Most of the time, this is not what you need, but the wonderful thing about Rust is that you can benchmark until your hair falls out, and check what *actually* is best for your specific use case. There are some rudementary benchmarks in the ``bench`` folder of this project which show that for the simple application of taking single array indices, the speeds are exactly the same. This is probably because the optimizer on Godbolt was less eager than the one on my computer. The second example, with the ranges, is significantly faster though! It just goes to show, with bounds checks in an iterative setting you're often at the whim of the optimizer for whether you get that last few percent of efficiency, and so you should always benchmark your code in the environment it will be running, and maybe using ``FixedVec`` will mean you don't have to rely solely on the compiler to do that optimization for you.
 
-I can imagine so many more circumstances in which this pattern would speed up some runtime checks (including those listed in the original GDP paper, like keys existing in HashMaps), and I hope this will inspire more use of this pattern in different contexts.
+I should also mention it's certainly possible to add methods like ``push`` to ``FixedVec``, since that wouldn't invalidate any previous indices checked.
+
+I can imagine so many more circumstances in which this pattern would speed up some runtime checks (including those listed in the original GDP paper, like keys existing in HashMaps, lists being non-empty, etc.), and I hope this will inspire more use of this pattern in different contexts in Rust.
