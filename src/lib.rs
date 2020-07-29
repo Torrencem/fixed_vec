@@ -40,13 +40,13 @@ impl<T, Name> Named<T, Name> {
 
 #[macro_export]
 macro_rules! name {
-    ($name:ident, $val:expr) => {{
-        struct $name {};
+    ($val:expr) => {{
+        struct UniqueName {};
 
         unsafe {
             // Nothing else is named $name because we just
             // defined $name!
-            name::<$name, _>($val)
+            name::<UniqueName, _>($val)
         }
     }}
 }
@@ -113,7 +113,7 @@ mod tests {
     fn it_works() {
         let v = vec![1, 2, 3];
 
-        let v = name!(MyName, v);
+        let v = name!(v);
 
         let v = FixedVec::fix(v);
 
@@ -124,7 +124,7 @@ mod tests {
         // Doesn't compile:
         // let v2: Vec<usize> = vec![];
         //
-        // let v2 = name!(MyName, v2);
+        // let v2 = name!(v2);
         //
         // let v2 = FixedVec::fix(v2);
         //
@@ -135,7 +135,7 @@ mod tests {
     fn loop_iter() {
         let v = vec![1, 2, 3];
 
-        let v = name!(MyName, v);
+        let v = name!(v);
 
         let mut v = FixedVec::fix(v);
 

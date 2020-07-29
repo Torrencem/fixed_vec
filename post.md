@@ -101,7 +101,7 @@ The essence of "Ghosts of departed proofs" is that we should pass around at comp
 ```rust
 let v = vec![0u32; 10];
 let v = name!(v);
-let mut v = fix_size(v);
+let mut v = FixedVec::fix(v);
 
 // Perform the two index checks here:
 let index_a = v.check_index(...).unwrap();
@@ -121,3 +121,137 @@ let v = v.unname();
 So what's happening here? In the first 3 lines, we're wrapping the Vec in a FixedVec, so that it's size won't change (we could let it expand, but that's not important). Because of ownership, since we're passing ownership of v, this is fine. We also give v a name, just like in the "ghosts of departed proofs" paper.
 
 In essence, what's important is that ``index_a`` has type ``Index<Name>``, and ``v`` has type ``FixedVec<u32, Name>``, and that ``Name`` matches between them. ``Name`` is a type created anonymously in the ``name!()`` macro. Since these types match, we must have created ``index_a`` from ``check_index`` on ``v``, and only on ``v``, and since ``v`` has a fixed size, the index must be in bounds.
+
+So how do we make it all work? It turns out, with the previous paragraph in mind, it's fairly straightforward. There are a couple of implementaitons of naming and names from GDP in Rust, but we'll make our own very simple one. Let's start by making a ``Named`` struct:
+
+```rust
+pub struct Named<T, Name> {
+    inner: T,
+    _phantom: PhantomData<Name>,
+}
+```
+
+Notice all the fields are private, so only we in our library can construct it. Now, we'll make a name function, that applies any name to wrap a type in ``Named``. We'll make this safe, since it makes sense in our use case:
+
+```rust
+/// Safety:
+/// Must make sure Name is not used as the name for any
+/// other value of type Named<T, Name>
+pub unsafe fn name<Name, T>(val: T) -> Named<T, Name> {
+    Named {
+        inner: val,
+        _phantom: PhantomData,
+    }
+}
+```
+
+The idea is, the only safe way the user will be able to create a ``Named`` is through the macro, which forces a unique ``Name`` type on each call. Speaking of, let's write the macro:
+
+```rust
+#[macro_export]
+macro_rules! name {
+    ($val:expr) => {{
+        struct UniqueName {};
+
+        unsafe {
+            // Nothing else is named with UniqueName since we
+            // just defined it!
+            name::<UniqueName, _>($val)
+        }
+    }}
+}
+```
+
+Great! We need some boilerplate for getting immutable references from ``Named``, as well as for unnaming it:
+
+```rust
+impl<T, Name> Named<T, Name> {
+    pub fn unname(self) -> T {
+        self.inner
+    }
+
+    pub fn unname_ref(&self) -> &T {
+        &self.inner
+    }
+
+    /// Safety:
+    /// Must uphold whatever invariants the Named protects
+    pub unsafe fn unname_ref_mut(&mut self) -> &mut T {
+        &mut self.inner
+    }
+}
+```
+
+This should give us a convenient way to use ``name!()`` to get unique types attached to values. It's not perfect, because we need to have ownership to use ``name!()`` (it should probably suffice to have ``&mut``, since that's a unique reference), but we'll adjust that another time.
+
+With that out of the way, let's write our ``FixedVec`` types and methods:
+
+```rust
+pub struct FixedVec<A, Name> {
+    inner: Named<Vec<A>, Name>,
+    _phantom: PhantomData<Name>,
+}
+
+impl<A, Name> FixedVec<A, Name> {
+    pub fn fix(val: Named<Vec<A>, Name>) -> Self {
+        FixedVec {
+            inner: val,
+            _phantom: PhantomData
+        }
+    }
+}
+```
+
+Because rust is amazing, we'll even be able to obtain a ``&Vec<A>`` from our FixedVec (because immutability):
+
+```rust
+impl<A, Name> Deref for FixedVec<A, Name> {
+    type Target = Vec<A>;
+
+    fn deref(&self) -> &Vec<A> {
+        self.inner.unname_ref()
+    }
+}
+```
+
+We need our ``Index<Name>`` struct, which represents a valid index in the named vec with name ``Name``. The only way to construct it should be through a bounds check.
+
+```rust
+// Goofy derive copy detail here
+pub struct Index<Name> {
+    index: usize,
+    _phantom: PhantomData<Name>,
+}
+```
+
+Now we can write our checking and getting functions with the Index type:
+
+```rust
+impl<A, Name> FixedVec<A, Name {
+    pub fn check_index(&self, index: usize) -> Option<Index<Name>> {
+        if self.inner.unname_ref().len() <= index {
+            None
+        } else {
+            Some(Index {
+                index,
+                _phantom: PhantomData
+            })
+        }
+    }
+
+    pub fn get(&self, index: Index<Name>) -> &A {
+        unsafe {
+            self.inner.unname_ref().get_unchecked(index.index)
+        }
+    }
+
+    pub fn get_mut(&mut self, index: Index<Name>) -> &mut A {
+        unsafe {
+            // We can take unname_ref_mut since
+            // changing a single index will not
+            // violate the length invariant
+            self.inner.unname_ref_mut().get_unchecked_mut(index.index)
+        }
+    }
+}
+```
