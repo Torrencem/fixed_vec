@@ -153,7 +153,7 @@ impl<A, Name> FixedVec<A, Name> {
     /// }
     /// ```
     pub fn check_range(&self, range: Range<usize>) -> Option<CheckedRange<Name>> {
-        if range.end >= self.len() {
+        if range.end > self.len() {
             None
         } else {
             Some(CheckedRange {
@@ -337,7 +337,7 @@ impl<'a, A, Name> BorrowedFixedVec<'a, A, Name> {
     }
 
     pub fn check_range(&self, range: Range<usize>) -> Option<CheckedRange<Name>> {
-        if range.end >= self.len() {
+        if range.end > self.len() {
             None
         } else {
             Some(CheckedRange {
@@ -425,7 +425,7 @@ impl<'a, A, Name> BorrowedMutFixedVec<'a, A, Name> {
     /// ``CheckedRange``, which will share the same ``Name`` as the ``FixedVec``. The created
     /// ``CheckedRange`` can be used to create valid ``Index``'s for the ``FixedVec``.
     pub fn check_range(&self, range: Range<usize>) -> Option<CheckedRange<Name>> {
-        if range.end >= self.len() {
+        if range.end > self.len() {
             None
         } else {
             Some(CheckedRange {
