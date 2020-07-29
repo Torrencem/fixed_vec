@@ -96,6 +96,8 @@ example::compute:
 
 We can see that ``LLB2_5`` and ``LLB2_4`` are the panicking IOOB branch. Where do we jump to them from? Ignoring whatever ``LLB2_5`` is, ``LLB2_4`` can be jumped to right from the beginning of ``LLB2_3``, the hot part of the loop! So, in essence, the written code is doing 100 bounds checks when it could be doing 1. Let's try and fix that.
 
+## Part 1: Checking indices
+
 The essence of "Ghosts of departed proofs" is that we should pass around at compile time some "proof" that some invariant holds, so that you do not need to check that invariant. For us, that will mean checking that an index is in bounds. Following the example of "tagging" from the paper, we want our final interface for the user to look something like this:
 
 ```rust
@@ -227,9 +229,9 @@ pub struct Index<Name> {
 Now we can write our checking and getting functions with the Index type:
 
 ```rust
-impl<A, Name> FixedVec<A, Name {
+impl<A, Name> FixedVec<A, Name> {
     pub fn check_index(&self, index: usize) -> Option<Index<Name>> {
-        if self.inner.unname_ref().len() <= index {
+        if self.len() <= index {
             None
         } else {
             Some(Index {
@@ -255,3 +257,92 @@ impl<A, Name> FixedVec<A, Name {
     }
 }
 ```
+
+And that's it! Now, to use our library, we'll write:
+
+```rust
+let v = vec![1, 2, 3];
+let v = name!(v);
+let v = FixedVec::fix(v);
+
+let index = v.check_index(1).unwrap();
+
+println!("{}", v.get(index));
+```
+
+But, for example, the following doesn't compile:
+
+```rust
+let v = vec![1, 2, 3];
+let v = name!(v);
+let v = FixedVec::fix(v);
+
+let index = v.check_index(1).unwrap();
+
+let v2: Vec<usize> = vec![];
+let v2 = name!(v2);
+let v2 = FixedVec::fix(v2);
+println!("{}", v2.get(index)); // Compile error here!
+```
+
+## Part 2: Ranges
+
+So that's all well and good, but if we're working with loads of indices, it would be awkward to have to keep track of a bunch of ``Index<Name>``'s. In particular, what if we want to work with a huge range of these indices? To check that all the indices in a range are in bounds is one check (is the upper bound of the range in bounds, assuming they are unsigned), so, ideally, we'd be able to just check a range once, then iterate through a bunch of ``Index<Name>``'s, like the following:
+
+```rust
+let v = vec![0u32; 1000];
+let v = name!(v);
+let v = FixedVec::fix(v);
+
+let range = (todo!("Lower bound")..todo!("Upper bound"));
+
+for i in v.check_range(range) {
+    // No bounds check happens here!
+    *v.get_mut(i) += 1;
+}
+// ...
+```
+
+So let's write the ``check_range`` function. We'll need a ``CheckedRange`` type to return as well:
+
+```rust
+#[derive(Derivative)]
+#[derivative(Clone(bound=""))]
+pub struct CheckedRange<Name> {
+    range: Range<usize>,
+    _phantom: PhantomData<Name>,
+}
+
+// Example iterator implementation
+impl<Name> Iterator for CheckedRange<Name> {
+    type Item = Index<Name>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.range.start >= self.range.end {
+            None
+        } else {
+            let tmp = Index {
+                index: self.range.start,
+                _phantom: PhantomData,
+            };
+            self.range.start += 1;
+            Some(tmp)
+        }
+    }
+}
+
+impl<A, Name> FixedVec<A, Name> {
+    pub fn check_range(&self, range: Range<usize>) -> Option<CheckedRange<Name>> {
+        if range.end >= self.len() {
+            None
+        } else {
+            Some(CheckedRange {
+                range,
+                _phantom: PhantomData,
+            })
+        }
+    }
+}
+```
+
+And that's it! Now we can use ``CheckedRange<Name>`` as an iterator, and it will produce ``Index<Name>``'s, avoiding potential redundent bounds checks.

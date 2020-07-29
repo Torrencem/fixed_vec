@@ -1,6 +1,7 @@
 
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::ops::Range;
 
 #[macro_use]
 extern crate derivative;
@@ -71,6 +72,30 @@ pub struct Index<Name> {
     _phantom: PhantomData<Name>,
 }
 
+#[derive(Derivative)]
+#[derivative(Clone(bound=""))]
+pub struct CheckedRange<Name> {
+    range: Range<usize>,
+    _phantom: PhantomData<Name>,
+}
+
+impl<Name> Iterator for CheckedRange<Name> {
+    type Item = Index<Name>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.range.start >= self.range.end {
+            None
+        } else {
+            let tmp = Index {
+                index: self.range.start,
+                _phantom: PhantomData,
+            };
+            self.range.start += 1;
+            Some(tmp)
+        }
+    }
+}
+
 impl<A, Name> FixedVec<A, Name> {
     pub fn fix(val: Named<Vec<A>, Name>) -> Self {
         FixedVec {
@@ -80,12 +105,23 @@ impl<A, Name> FixedVec<A, Name> {
     }
 
     pub fn check_index(&self, index: usize) -> Option<Index<Name>> {
-        if self.inner.unname_ref().len() <= index {
+        if self.len() <= index {
             None
         } else {
             Some(Index {
                 index,
                 _phantom: PhantomData
+            })
+        }
+    }
+
+    pub fn check_range(&self, range: Range<usize>) -> Option<CheckedRange<Name>> {
+        if range.end >= self.len() {
+            None
+        } else {
+            Some(CheckedRange {
+                range,
+                _phantom: PhantomData,
             })
         }
     }
@@ -150,5 +186,21 @@ mod tests {
         }
 
         println!("{:?}", v.deref());
+    }
+
+    #[test]
+    fn checked_range() {
+        let v = vec![0u32; 50];
+        let v = name!(v);
+        let mut v = FixedVec::fix(v);
+
+        let range = 0usize..20;
+        let range = v.check_range(range).unwrap();
+
+        for _ in 0..10 {
+            for i in range.clone() {
+                *v.get_mut(i) += 1;
+            }
+        }
     }
 }
