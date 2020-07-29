@@ -339,7 +339,7 @@ impl<Name> Iterator for CheckedRange<Name> {
 
 impl<A, Name> FixedVec<A, Name> {
     pub fn check_range(&self, range: Range<usize>) -> Option<CheckedRange<Name>> {
-        if range.end >= self.len() {
+        if range.end > self.len() {
             None
         } else {
             Some(CheckedRange {
