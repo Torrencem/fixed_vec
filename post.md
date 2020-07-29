@@ -2,7 +2,7 @@
 
 In this article, we'll be looking at a clever way to remove redundent bounds checks on array indexing using techniques discussed in the legendary paper [Ghosts of Departed Proofs](https://kataskeue.com/gdp.pdf).
 
-Let's get one thing out of the way off the bat: if you don't want to have to deal with bounds checks, most of the time you want to use iterators instead of loops. [This page](https://www.cs.brandeis.edu/~cs146a/rust/doc-02-21-2015/book/iterators.html) provides a nice introduction to iterators and their adapters if you've never used them before. Suffice it to say, using ``map``'s and ``filter``'s will compile into code without bounds checks, and fits what you were probably trying to do anyway.
+Let's get one thing out of the way: if you don't want to have to deal with bounds checks, most of the time you want to use iterators instead of loops. [This page](https://www.cs.brandeis.edu/~cs146a/rust/doc-02-21-2015/book/iterators.html) provides a nice introduction to iterators and their adapters if you've never used them before. Suffice it to say, using ``map``'s and ``filter``'s will compile into code without bounds checks, and fits what you were probably trying to do anyway.
 
 Besides this, there are sometimes situations where writing for loops is either the only way, or prefereable for whatever reason. Consider the following example:
 
@@ -355,7 +355,11 @@ And that's it! Now we can use ``CheckedRange<Name>`` as an iterator, and it will
 
 ## Epilogue
 
-So does this make a difference in terms of speed? Well, the answer is, as always, it depends. Most of the time, this is not what you need, but the wonderful thing about Rust is that you can benchmark until your hair falls out, and check what *actually* is best for your specific use case. There are some rudementary benchmarks in the ``bench`` folder of this project which show that for the simple application of taking single array indices, the speeds are exactly the same. This is probably because the optimizer on Godbolt was less eager than the one on my computer. The second example, with the ranges, is significantly faster though! It just goes to show, with bounds checks in an iterative setting you're often at the whim of the optimizer for whether you get that last few percent of efficiency, and so you should always benchmark your code in the environment it will be running, and maybe using ``FixedVec`` will mean you don't have to rely solely on the compiler to do that optimization for you.
+So does this make a difference in terms of speed? Well, the answer is, as always, it depends. Most of the time, this is not *that* useful, but the wonderful thing about Rust is that you can benchmark everything, and check what *actually* is best for your specific use case.
+
+There are some rudementary benchmarks in the ``bench`` folder of this project which show that for the simple application of taking single array indices, the speeds are exactly the same. This is probably because the optimizer on Godbolt was less eager than the one on my computer. The second example, with the ranges, is significantly faster though!
+
+One other application I haven't explored but might in a future version is how this would simplify ``no_panic`` code, since array out of bounds could be handled much smoother at the beginning of a function, rather than at every ``get()`` call. I'd appreciate feedback and suggestions!
 
 The library in which this is a markdown file ("fixed_vec") includes an implementation, with other structs ``BorrowedFixedVec`` and ``BorrowedMutFixedVec`` for when you only have access to a ``&Vec<A>`` or ``&mut Vec<A>`` respectively. These aren't ``'static``, but you can still get the same advantages from using them.
 
