@@ -194,7 +194,6 @@ With that out of the way, let's try and write our ``FixedVec`` types and methods
 ```rust
 pub struct FixedVec<A, Name> {
     inner: Named<Vec<A>, Name>,
-    _phantom: PhantomData<Name>,
 }
 
 impl<A, Name> FixedVec<A, Name> {
@@ -203,7 +202,6 @@ impl<A, Name> FixedVec<A, Name> {
     pub fn fix(val: Named<Vec<A>, Name>) -> Self {
         FixedVec {
             inner: val,
-            _phantom: PhantomData
         }
     }
 }
@@ -221,7 +219,9 @@ impl<A, Name> Deref for FixedVec<A, Name> {
 }
 ```
 
-We need our ``Index<Name>`` struct, which represents a valid index in the named vec with name ``Name``. The only way to construct it should be through a bounds check.
+This lets us use all of our favorite methods that take a ``&Vec<A>`` or a ``&[A]``, which is good.
+
+We need an ``Index<Name>`` struct, which represents a valid index in the named vec with name ``Name``. The only way to construct it should be through a bounds check.
 
 ```rust
 pub struct Index<Name> {
@@ -357,6 +357,6 @@ And that's it! Now we can use ``CheckedRange<Name>`` as an iterator, and it will
 
 So does this make a difference in terms of speed? Well, the answer is, as always, it depends. Most of the time, this is not what you need, but the wonderful thing about Rust is that you can benchmark until your hair falls out, and check what *actually* is best for your specific use case. There are some rudementary benchmarks in the ``bench`` folder of this project which show that for the simple application of taking single array indices, the speeds are exactly the same. This is probably because the optimizer on Godbolt was less eager than the one on my computer. The second example, with the ranges, is significantly faster though! It just goes to show, with bounds checks in an iterative setting you're often at the whim of the optimizer for whether you get that last few percent of efficiency, and so you should always benchmark your code in the environment it will be running, and maybe using ``FixedVec`` will mean you don't have to rely solely on the compiler to do that optimization for you.
 
-I should also mention it's certainly possible to add methods like ``push`` to ``FixedVec``, since that wouldn't invalidate any previous indices checked.
+The library in which this is a markdown file ("fixed_vec") includes an implementation, with other structs ``BorrowedFixedVec`` and ``BorrowedMutFixedVec`` for when you only have access to a ``&Vec<A>`` or ``&mut Vec<A>`` respectively. These aren't ``'static``, but you can still get the same advantages from using them.
 
-I can imagine so many more circumstances in which this pattern would speed up some runtime checks (including those listed in the original GDP paper, like keys existing in HashMaps, lists being non-empty, etc.), and I hope this will inspire more use of this pattern in different contexts in Rust.
+I can imagine so many more circumstances where this pattern would speed up some runtime checks (including those listed in the original GDP paper, like keys existing in HashMaps, lists being non-empty, etc.), and I hope this will inspire more use of this pattern in different contexts in Rust.
