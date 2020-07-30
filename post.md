@@ -363,4 +363,4 @@ One other application I haven't explored but might in a future version is how th
 
 The library in which this is a markdown file ("fixed_vec") includes an implementation, with other structs ``BorrowedFixedVec`` and ``BorrowedMutFixedVec`` for when you only have access to a ``&Vec<A>`` or ``&mut Vec<A>`` respectively. These aren't ``'static``, but you can still get the same advantages from using them.
 
-I can imagine so many more circumstances where this pattern would speed up some runtime checks (including those listed in the original GDP paper, like keys existing in HashMaps, lists being non-empty, etc.), and I hope this will inspire more use of this pattern in different contexts in Rust.
+I can imagine so many more circumstances where this pattern would speed up some runtime checks (including those listed in the original GDP paper, like keys existing in HashMaps, lists being non-empty, etc.), and I hope this will inspire more use of this pattern in different contexts in Rust. I might work on a similar pattern for ``HashMap``'s soon if I think it would be worth it.
