@@ -1,5 +1,11 @@
 # Ghosts of departed proofs
 
+# Important Note
+
+This crate was found to be unsound by a very kind Reddit user /u/SkiFire13 ([see here](https://www.reddit.com/r/rust/comments/i0k1y6/fixed_vec_v010_avoiding_extra_bounds_checks_using/)). See the Readme for more information, the crate has been yanked. I'll leave the post below for fun though in case you want to read.
+
+Original article:
+
 In this article, we'll be looking at a clever way to remove redundent bounds checks on array indexing using techniques discussed in the legendary paper [Ghosts of Departed Proofs](https://kataskeue.com/gdp.pdf).
 
 Let's get one thing out of the way: if you don't want to have to deal with bounds checks, most of the time you want to use iterators instead of loops. [This page](https://www.cs.brandeis.edu/~cs146a/rust/doc-02-21-2015/book/iterators.html) provides a nice introduction to iterators and their adapters if you've never used them before. Suffice it to say, using ``map``'s and ``filter``'s will compile into code without bounds checks, and fits what you were probably trying to do anyway.
